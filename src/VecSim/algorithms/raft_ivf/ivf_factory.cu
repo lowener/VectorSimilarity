@@ -1,7 +1,9 @@
+#include "cagra.cuh"
 #include "ivf_factory.h"
 #include "ivf_flat.cuh"
 #include "ivf_pq.cuh"
 #include "ivf_tiered.cuh"
+#include "raft_utils.cuh"
 #include <iostream>
 
 namespace RaftIVFFlatFactory {
@@ -53,3 +55,26 @@ size_t EstimateInitialSize(const RaftIVFPQParams *params) {
 
 size_t EstimateElementSize(const RaftIVFPQParams *params) { return 0; }
 } // namespace RaftIVFPQFactory
+
+namespace RaftCAGRAFactory {
+    VecSimIndex *NewIndex(const RaftCAGRAParams *params, std::shared_ptr<VecSimAllocator> allocator) {
+        assert(params->type == VecSimType_FLOAT32);
+        return new (allocator) RaftCAGRAIndex(params, allocator);
+    }
+    VecSimIndex *NewTieredIndex(const TieredRaftCAGRAParams *params,
+                                std::shared_ptr<VecSimAllocator> allocator) {
+        assert(params->CAGRAParams.type == VecSimType_FLOAT32);
+        auto *pq_index = NewIndex(&params->CAGRAParams, allocator);
+        return new (allocator)
+            TieredRaftIvfIndex(dynamic_cast<RaftIVFIndex *>(pq_index), params->tieredParams);
+    }
+
+    size_t EstimateInitialSize(const RaftCAGRAParams *params) {
+        size_t est = sizeof(RaftCAGRAIndex);                                // Object size
+        // TODO    
+        return est;
+    }
+
+    // TODO
+    size_t EstimateElementSize(const RaftCAGRAParams *params) { return 0; }
+} // namespace RaftCAGRAFactory

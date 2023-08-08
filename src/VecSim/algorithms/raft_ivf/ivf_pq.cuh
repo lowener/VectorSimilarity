@@ -63,10 +63,10 @@ public:
 
         if (!pq_index_) {
             pq_index_ = std::make_unique<raftIvfPQIndex_t>(
-                raft::neighbors::ivf_pq::build<DataType, std::int64_t>(res_, *build_params_pq_,
+                raft::neighbors::ivf_pq::build<DataType, std::int64_t>(*res_, *build_params_pq_,
                                                                        vector_data_gpu));
         }
-        raft::neighbors::ivf_pq::extend<DataType, std::int64_t>(res_, vector_data_gpu, std::make_optional(label_gpu),
+        raft::neighbors::ivf_pq::extend<DataType, std::int64_t>(*res_, vector_data_gpu, std::make_optional(label_gpu),
                                         pq_index_.get());
         return batch_size;
     }
@@ -79,7 +79,7 @@ public:
         auto distances_gpu =
             raft::make_device_matrix_view<float, std::uint32_t>((float *)distances, batch_size, k);
 
-        raft::neighbors::ivf_pq::search<DataType, std::int64_t>(res_, *search_params_pq_, *pq_index_, vector_data_gpu,
+        raft::neighbors::ivf_pq::search<DataType, std::int64_t>(*res_, *search_params_pq_, *pq_index_, vector_data_gpu,
                                         neighbors_gpu, distances_gpu);
     }
     VecSimIndexInfo info() const override {

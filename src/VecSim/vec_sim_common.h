@@ -32,7 +32,8 @@ typedef enum {
     VecSimAlgo_BF,
     VecSimAlgo_HNSWLIB,
     VecSimAlgo_RaftIVFFlat,
-    VecSimAlgo_RaftIVFPQ
+    VecSimAlgo_RaftIVFPQ,
+    VecSimAlgo_RaftCAGRA
 } VecSimAlgo;
 
 // Distance metric
@@ -169,6 +170,22 @@ typedef struct {
 } TieredRaftIVFPQParams;
 
 typedef struct {
+    VecSimType type;                   // Datatype to index.
+    size_t dim;                        // Vector's dimension.
+    VecSimMetric metric;               // Distance metric to use in the index.
+    bool multi;                        // Determines if the index should multi-index or not.
+    size_t blockSize;                  // Currently not used
+    size_t intermediate_graph_degree;  // Degree of input graph for pruning. (Default = 128)
+    size_t graph_degree;               // Degree of output graph. (Default = 64)
+    size_t itopk_size;                 // Number of intermediate search results (Default = 64)
+} RaftCAGRAParams;
+
+typedef struct {
+    RaftCAGRAParams CAGRAParams;
+    TieredIndexParams tieredParams;
+} TieredRaftCAGRAParams;
+
+typedef struct {
     VecSimAlgo algo; // Algorithm to use.
     union {
         HNSWParams hnswParams;
@@ -176,8 +193,10 @@ typedef struct {
         TieredHNSWParams tieredHNSWParams;
         RaftIVFFlatParams raftIVFFlatParams;
         RaftIVFPQParams raftIVFPQParams;
+        RaftCAGRAParams raftCAGRAParams;
         TieredRaftIVFFlatParams tieredRaftIVFFlatParams;
         TieredRaftIVFPQParams tieredRaftIVFPQParams;
+        TieredRaftCAGRAParams tieredRaftCAGRAParams;
     };
 } VecSimParams;
 

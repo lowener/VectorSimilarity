@@ -6,6 +6,7 @@
 #include "VecSim/memory/vecsim_malloc.h"
 
 #include <raft/core/device_resources.hpp>
+#include "raft_utils.cuh"
 
 #pragma once
 
@@ -33,12 +34,15 @@ public:
     RaftIVFIndex(const T *params, std::shared_ptr<VecSimAllocator> allocator)
         : VecSimIndexAbstract<float>(allocator, params->dim, params->type, params->metric,
                                      params->blockSize, params->multi)
-          {}
+    {
+        raft_utils::init_gpu_resources();
+        res_ = std::make_unique<raft::device_resources>(raft_utils::get_raft_resources());
+    }
     int addVector(const void *vector_data, labelType label,
                   bool overwrite_allowed = true) override {
         return this->addVectorBatch(vector_data, &label, 1, overwrite_allowed);
     }
-    int addVectorBatch(const void *vector_data, labelType *label, size_t batch_size,
+    virtual int addVectorBatch(const void *vector_data, labelType *label, size_t batch_size,
                        bool overwrite_allowed = true);
     virtual int addVectorBatchGpuBuffer(const void *vector_data, std::int64_t *label,
                                         size_t batch_size, bool overwrite_allowed = true) = 0;
@@ -60,8 +64,8 @@ public:
     inline size_t indexLabelCount() const override {
         return this->indexSize(); // TODO: Return unique counts
     }
-    VecSimQueryResult_List topKQuery(const void *queryBlob, size_t k,
-                                     VecSimQueryParams *queryParams) override;
+    virtual VecSimQueryResult_List topKQuery(const void *queryBlob, size_t k,
+                                             VecSimQueryParams *queryParams);
     VecSimQueryResult_List rangeQuery(const void *queryBlob, double radius,
                                       VecSimQueryParams *queryParams) override {
         assert(!"RangeQuery not implemented");
@@ -75,35 +79,35 @@ public:
         assert(!"preferAdHocSearch not implemented");
     }
 
-    auto get_resources() { return res_; }
+    auto get_resources() { return *res_; }
 
     virtual size_t nLists() = 0;
 
 protected:
     virtual void search(const void *vector_data, void *neighbors, void *distances,
                         size_t batch_size, size_t k) = 0;
-    raft::device_resources res_;
+    std::unique_ptr<raft::device_resources> res_;
 };
 
 int RaftIVFIndex::addVectorBatch(const void *vector_data, labelType *labels, size_t batch_size,
                                  bool overwrite_allowed) {
     auto vector_data_gpu =
-        raft::make_device_matrix<DataType, std::int64_t>(res_, batch_size, this->dim);
+        raft::make_device_matrix<DataType, std::int64_t>(*res_, batch_size, this->dim);
     auto label_original = std::vector<labelType>(labels, labels + batch_size);
     auto label_converted = std::vector<std::int64_t>(label_original.begin(), label_original.end());
-    auto label_gpu = raft::make_device_vector<std::int64_t, std::int64_t>(res_, batch_size);
+    auto label_gpu = raft::make_device_vector<std::int64_t, std::int64_t>(*res_, batch_size);
 
     RAFT_CUDA_TRY(cudaMemcpyAsync(vector_data_gpu.data_handle(), (DataType *)vector_data,
                                   this->dim * batch_size * sizeof(float), cudaMemcpyDefault,
-                                  res_.get_stream()));
+                                  res_->get_stream()));
     RAFT_CUDA_TRY(cudaMemcpyAsync(label_gpu.data_handle(), label_converted.data(),
                                   batch_size * sizeof(std::int64_t), cudaMemcpyDefault,
-                                  res_.get_stream()));
+                                  res_->get_stream()));
 
     this->addVectorBatchGpuBuffer(vector_data_gpu.data_handle(), label_gpu.data_handle(),
                                   batch_size, overwrite_allowed);
 
-    res_.sync_stream();
+    res_->sync_stream();
     return batch_size;
 }
 
@@ -119,14 +123,14 @@ VecSimQueryResult_List RaftIVFIndex::topKQuery(const void *queryBlob, size_t k,
     if (k > nVectors)
         k = nVectors; // Safeguard K
     auto vector_data_gpu =
-        raft::make_device_matrix<DataType, std::uint32_t>(res_, queryParams->batchSize, this->dim);
+        raft::make_device_matrix<DataType, std::uint32_t>(*res_, queryParams->batchSize, this->dim);
     auto neighbors_gpu =
-        raft::make_device_matrix<std::int64_t, std::uint32_t>(res_, queryParams->batchSize, k);
+        raft::make_device_matrix<std::int64_t, std::uint32_t>(*res_, queryParams->batchSize, k);
     auto distances_gpu =
-        raft::make_device_matrix<float, std::uint32_t>(res_, queryParams->batchSize, k);
+        raft::make_device_matrix<float, std::uint32_t>(*res_, queryParams->batchSize, k);
     RAFT_CUDA_TRY(cudaMemcpyAsync(vector_data_gpu.data_handle(), (const DataType *)queryBlob,
                                   this->dim * queryParams->batchSize * sizeof(float),
-                                  cudaMemcpyDefault, res_.get_stream()));
+                                  cudaMemcpyDefault, res_->get_stream()));
 
     this->search(vector_data_gpu.data_handle(), neighbors_gpu.data_handle(),
                  distances_gpu.data_handle(), 1, k);
@@ -136,11 +140,11 @@ VecSimQueryResult_List RaftIVFIndex::topKQuery(const void *queryBlob, size_t k,
     auto *distances = array_new_len<float>(result_size, result_size);
     RAFT_CUDA_TRY(cudaMemcpyAsync(neighbors, neighbors_gpu.data_handle(),
                                   result_size * sizeof(std::int64_t), cudaMemcpyDefault,
-                                  res_.get_stream()));
+                                  res_->get_stream()));
     RAFT_CUDA_TRY(cudaMemcpyAsync(distances, distances_gpu.data_handle(),
                                   result_size * sizeof(float), cudaMemcpyDefault,
-                                  res_.get_stream()));
-    res_.sync_stream();
+                                  res_->get_stream()));
+    res_->sync_stream();
 
     result_list.results = array_new_len<VecSimQueryResult>(k, k);
     for (size_t i = 0; i < k; ++i) {

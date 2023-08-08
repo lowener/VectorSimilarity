@@ -22,3 +22,11 @@ VecSimIndex *NewTieredIndex(const TieredRaftIVFPQParams *params,
 size_t EstimateInitialSize(const RaftIVFPQParams *params);
 size_t EstimateElementSize(const RaftIVFPQParams *params);
 }; // namespace RaftIVFPQFactory
+
+namespace RaftCAGRAFactory {
+    VecSimIndex *NewIndex(const RaftCAGRAParams *params, std::shared_ptr<VecSimAllocator> allocator);
+    VecSimIndex *NewTieredIndex(const TieredRaftCAGRAParams *params,
+                                std::shared_ptr<VecSimAllocator> allocator);
+    size_t EstimateInitialSize(const RaftCAGRAParams *params);
+    size_t EstimateElementSize(const RaftCAGRAParams *params);
+} // namespace RaftCAGRAFactory

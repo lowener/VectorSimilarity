@@ -57,6 +57,7 @@ BM_VecSimIndex<index_type_t>::~BM_VecSimIndex() {
         VecSimIndex_Free(indices[VecSimAlgo_HNSWLIB]);
         VecSimIndex_Free(indices[VecSimAlgo_RaftIVFFlat]);
         VecSimIndex_Free(indices[VecSimAlgo_RaftIVFPQ]);
+        VecSimIndex_Free(indices[VecSimAlgo_RaftCAGRA]);
     }
 }
 
@@ -138,6 +139,16 @@ void BM_VecSimIndex<index_type_t>::Initialize() {
     params_tiered_pq.tieredParams = tiered_params;
     indices.push_back(RaftIVFPQFactory::NewTieredIndex(&params_tiered_pq, allocator));
 
+    RaftCAGRAParams cagra_params = {.dim = dim,
+                                    .metric = VecSimMetric_L2,
+                                    .intermediate_graph_degree = 40,
+                                    .graph_degree = 30,
+                                    .itopk_size = 250};
+    TieredRaftCAGRAParams params_tiered_cagra;
+    params_tiered_cagra.CAGRAParams = cagra_params;
+    params_tiered_cagra.tieredParams = tiered_params;
+    indices.push_back(RaftCAGRAFactory::NewTieredIndex(&params_tiered_cagra, allocator));
+
     // Add the same vectors to Flat index.
     for (size_t i = 0; i < n_vectors; ++i) {
         char *blob = GetHNSWDataByInternalId(i);
@@ -146,6 +157,7 @@ void BM_VecSimIndex<index_type_t>::Initialize() {
         VecSimIndex_AddVector(indices[VecSimAlgo_BF], blob, label);
         VecSimIndex_AddVector(indices[VecSimAlgo_RaftIVFFlat], blob, label);
         VecSimIndex_AddVector(indices[VecSimAlgo_RaftIVFPQ], blob, label);
+        VecSimIndex_AddVector(indices[VecSimAlgo_RaftCAGRA], blob, label);
     }
 
     // Load the test query vectors form file. Index file path is relative to repository root dir.

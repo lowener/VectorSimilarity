@@ -117,6 +117,9 @@ extern "C" VecSimIndex *VecSimIndex_New(const VecSimParams *params) {
         case VecSimAlgo_RaftIVFPQ:
             index = RaftIVFPQFactory::NewIndex(&params->raftIVFPQParams, allocator);
             break;
+        case VecSimAlgo_RaftCAGRA:
+            index = RaftCAGRAFactory::NewIndex(&params->raftCAGRAParams, allocator);
+            break;
         }
     } catch (...) {
         // Index will delete itself. For now, do nothing.
@@ -134,6 +137,8 @@ extern "C" size_t VecSimIndex_EstimateInitialSize(const VecSimParams *params) {
         return RaftIVFFlatFactory::EstimateInitialSize(&params->raftIVFFlatParams);
     case VecSimAlgo_RaftIVFPQ:
         return RaftIVFPQFactory::EstimateInitialSize(&params->raftIVFPQParams);
+    case VecSimAlgo_RaftCAGRA:
+        return RaftCAGRAFactory::EstimateInitialSize(&params->raftCAGRAParams);
     }
     return -1;
 }
@@ -169,6 +174,8 @@ extern "C" size_t VecSimIndex_EstimateElementSize(const VecSimParams *params) {
         return RaftIVFFlatFactory::EstimateElementSize(&params->raftIVFFlatParams);
     case VecSimAlgo_RaftIVFPQ:
         return RaftIVFPQFactory::EstimateElementSize(&params->raftIVFPQParams);
+    case VecSimAlgo_RaftCAGRA:
+        return RaftCAGRAFactory::EstimateElementSize(&params->raftCAGRAParams);
     }
     return -1;
 }

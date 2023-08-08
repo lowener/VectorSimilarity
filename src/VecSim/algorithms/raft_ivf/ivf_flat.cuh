@@ -29,10 +29,10 @@ public:
 
         if (!flat_index_) {
             flat_index_ = std::make_unique<raftIvfFlatIndex_t>(
-                raft::neighbors::ivf_flat::build<DataType, std::int64_t>(res_, *build_params_flat_,
+                raft::neighbors::ivf_flat::build<DataType, std::int64_t>(*res_, *build_params_flat_,
                                                                          vector_data_gpu));
         }
-        raft::neighbors::ivf_flat::extend<DataType, std::int64_t>(res_, vector_data_gpu, std::make_optional(label_gpu),
+        raft::neighbors::ivf_flat::extend<DataType, std::int64_t>(*res_, vector_data_gpu, std::make_optional(label_gpu),
                                           flat_index_.get());
         return batch_size;
     }
@@ -46,7 +46,7 @@ public:
         auto distances_gpu =
             raft::make_device_matrix_view<float, std::int64_t>((float *)distances, batch_size, k);
 
-        raft::neighbors::ivf_flat::search<DataType, std::int64_t>(res_, *search_params_flat_, *flat_index_, vector_data_gpu,
+        raft::neighbors::ivf_flat::search<DataType, std::int64_t>(*res_, *search_params_flat_, *flat_index_, vector_data_gpu,
                                           neighbors_gpu, distances_gpu);
     }
     VecSimIndexInfo info() const override {

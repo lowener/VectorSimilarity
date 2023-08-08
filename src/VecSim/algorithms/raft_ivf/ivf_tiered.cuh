@@ -1,6 +1,7 @@
 #pragma once
 
 #include "VecSim/vec_sim_tiered_index.h"
+#include "cagra.cuh" // TODO needed for dynamic_cast
 #include "ivf_index.cuh"
 #include "ivf_factory.h"
 
@@ -18,7 +19,10 @@ public:
     int addVector(const void *blob, labelType label, bool overwrite_allowed) override {
         updateIvfIndex = true;
         auto flat_result = this->flatBuffer->addVector(blob, label, overwrite_allowed);
-        if (this->flatBuffer->indexSize() > this->ivf_index_->nLists() * 2) transferToIvf();
+        // TODO CAGRA doesn't support increments
+        // dynamic_cast<RaftCAGRAIndex*>(ivf_index) != nullptr
+        // if (this->flatBuffer->indexSize() > this->ivf_index_->nLists() * 10)
+        //    transferToIvf();
         return flat_result;
     }
     int deleteVector(labelType id) override {
@@ -64,14 +68,9 @@ public:
         const auto &vectorBlocks = this->flatBuffer->getVectorBlocks();
         auto vectorDataGpuBuffer = raft::make_device_matrix<DataType, std::int64_t>(
             ivf_index_->get_resources(), nVectors, dim);
-        auto labels_gpu = raft::make_device_vector<std::int64_t, std::int64_t>(
-            ivf_index_->get_resources(), nVectors);
         auto label_original = this->flatBuffer->getLabels();
         auto label_converted =
             std::vector<std::int64_t>(label_original.begin(), label_original.begin() + nVectors);
-        RAFT_CUDA_TRY(cudaMemcpyAsync(labels_gpu.data_handle(), label_converted.data(),
-                                      label_converted.size() * sizeof(std::int64_t),
-                                      cudaMemcpyDefault, ivf_index_->get_resources().get_stream()));
         std::int64_t offset = 0;
         for (int block_id = 0; block_id < vectorBlocks.size(); block_id++) {
             if (vectorBlocks[block_id]->getLength() == 0)
@@ -85,10 +84,18 @@ public:
             offset += vectorBlocks[block_id]->getLength();
         }
         this->ivf_index_->get_resources().sync_stream();
-        this->ivf_index_->addVectorBatchGpuBuffer(vectorDataGpuBuffer.data_handle(),
-                                                  labels_gpu.data_handle(), nVectors);
-        
-        this->flatBuffer->resetIndex();
+        if (dynamic_cast<RaftCAGRAIndex*>(ivf_index_) == nullptr) {
+            auto labels_gpu = raft::make_device_vector<std::int64_t, std::int64_t>(
+                ivf_index_->get_resources(), nVectors);
+            RAFT_CUDA_TRY(cudaMemcpyAsync(labels_gpu.data_handle(), label_converted.data(),
+                                          label_converted.size() * sizeof(std::int64_t),
+                                          cudaMemcpyDefault, ivf_index_->get_resources().get_stream()));
+            this->ivf_index_->addVectorBatchGpuBuffer(vectorDataGpuBuffer.data_handle(),
+                                                    labels_gpu.data_handle(), nVectors);
+            this->flatBuffer->resetIndex();
+        } else {
+            dynamic_cast<RaftCAGRAIndex*>(this->ivf_index_)->addVectorBatchGpuBufferCpuLabel(vectorDataGpuBuffer.data_handle(), label_converted.data(), nVectors);
+        }
         updateIvfIndex = false;
     }
 
