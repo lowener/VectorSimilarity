@@ -1,7 +1,7 @@
 #include "gtest/gtest.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/vec_sim_common.h"
-#include "VecSim/algorithms/raft_ivf/ivf_tiered.h"
+#include "VecSim/algorithms/cuvs_ivf/ivf_tiered.h"
 #include "VecSim/index_factories/tiered_factory.h"
 #include "test_utils.h"
 #include <climits>
@@ -11,12 +11,12 @@
 #include "mock_thread_pool.h"
 
 template <typename index_type_t>
-class RaftIvfTieredTest : public ::testing::Test {
+class CuvsIvfTieredTest : public ::testing::Test {
 public:
     using data_t = typename index_type_t::data_t;
     using dist_t = typename index_type_t::dist_t;
 
-    TieredRaftIvfIndex<data_t, dist_t> *createTieredIndex(VecSimParams *params,
+    TieredCuvsIvfIndex<data_t, dist_t> *createTieredIndex(VecSimParams *params,
                                                           tieredIndexMock &mock_thread_pool,
                                                           size_t flat_buffer_limit = 0) {
         TieredIndexParams params_tiered = {
@@ -31,12 +31,12 @@ public:
         // the index, and we'll need to release the ctx at the end of the test.
         mock_thread_pool.ctx->index_strong_ref.reset(tiered_index);
 
-        return reinterpret_cast<TieredRaftIvfIndex<data_t, dist_t> *>(tiered_index);
+        return reinterpret_cast<TieredCuvsIvfIndex<data_t, dist_t> *>(tiered_index);
     }
 };
 
 VecSimParams createDefaultPQParams(size_t dim, uint32_t nLists = 3, uint32_t nProbes = 3) {
-    RaftIvfParams ivfparams = {.dim = dim,
+    CuvsIvfParams ivfparams = {.dim = dim,
                                .metric = VecSimMetric_L2,
                                .nLists = nLists,
                                .kmeans_nIters = 20,
@@ -45,32 +45,32 @@ VecSimParams createDefaultPQParams(size_t dim, uint32_t nLists = 3, uint32_t nPr
                                .usePQ = true,
                                .pqBits = 8,
                                .pqDim = 0,
-                               .codebookKind = RaftIVFPQCodebookKind_PerSubspace,
+                               .codebookKind = CuvsIVFPQCodebookKind_PerSubspace,
                                .lutType = CUDAType_R_32F,
                                .internalDistanceType = CUDAType_R_32F,
                                .preferredShmemCarveout = 1.0};
-    VecSimParams params{.algo = VecSimAlgo_RAFT_IVFPQ, .algoParams = {.raftIvfParams = ivfparams}};
+    VecSimParams params{.algo = VecSimAlgo_CUVS_IVFPQ, .algoParams = {.cuvsIvfParams = ivfparams}};
     return params;
 }
 
 VecSimParams createDefaultFlatParams(size_t dim, uint32_t nLists = 3, uint32_t nProbes = 3) {
-    RaftIvfParams ivfparams = {.dim = dim,
+    CuvsIvfParams ivfparams = {.dim = dim,
                                .metric = VecSimMetric_L2,
                                .nLists = nLists,
                                .kmeans_nIters = 20,
                                .kmeans_trainsetFraction = 0.5,
                                .nProbes = nProbes,
                                .usePQ = false};
-    VecSimParams params{.algo = VecSimAlgo_RAFT_IVFFLAT,
-                        .algoParams = {.raftIvfParams = ivfparams}};
+    VecSimParams params{.algo = VecSimAlgo_CUVS_IVFFLAT,
+                        .algoParams = {.cuvsIvfParams = ivfparams}};
     return params;
 }
 
 using DataTypeSetFloat = ::testing::Types<IndexType<VecSimType_FLOAT32, float>>;
 
-TYPED_TEST_SUITE(RaftIvfTieredTest, DataTypeSetFloat);
+TYPED_TEST_SUITE(CuvsIvfTieredTest, DataTypeSetFloat);
 
-TYPED_TEST(RaftIvfTieredTest, end_to_end) {
+TYPED_TEST(CuvsIvfTieredTest, end_to_end) {
     size_t dim = 4;
     size_t flat_buffer_limit = 3;
     size_t nLists = 2;
@@ -123,8 +123,8 @@ TYPED_TEST(RaftIvfTieredTest, end_to_end) {
     runTopKSearchTest(index, c_vec.data(), k, ver_res_c);
 }
 
-TYPED_TEST(RaftIvfTieredTest, transferJob) {
-    // Create RAFT Tiered index instance with a mock queue.
+TYPED_TEST(CuvsIvfTieredTest, transferJob) {
+    // Create CUVS Tiered index instance with a mock queue.
 
     size_t dim = 4;
     size_t flat_buffer_limit = 3;
@@ -148,21 +148,21 @@ TYPED_TEST(RaftIvfTieredTest, transferJob) {
 
     // Execute the insert job manually (in a synchronous manner).
     ASSERT_EQ(mock_thread_pool.jobQ.size(), 1);
-    auto *insertion_job = reinterpret_cast<RAFTTransferJob *>(mock_thread_pool.jobQ.front().job);
-    ASSERT_EQ(insertion_job->jobType, RAFT_TRANSFER_JOB);
+    auto *insertion_job = reinterpret_cast<CUVSTransferJob *>(mock_thread_pool.jobQ.front().job);
+    ASSERT_EQ(insertion_job->jobType, CUVS_TRANSFER_JOB);
 
     mock_thread_pool.thread_iteration();
     ASSERT_EQ(tiered_index->indexSize(), 1);
     ASSERT_EQ(tiered_index->frontendIndex->indexSize(), 0);
     ASSERT_EQ(tiered_index->backendIndex->indexSize(), 1);
-    // RAFT IVF index should have allocated a single block, while flat index should remove the
+    // CUVS IVF index should have allocated a single block, while flat index should remove the
     // block.
     ASSERT_EQ(tiered_index->frontendIndex->indexCapacity(), 0);
     // After the execution, the job should be removed from the job queue.
     ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
 }
 
-TYPED_TEST(RaftIvfTieredTest, transferJobAsync) {
+TYPED_TEST(CuvsIvfTieredTest, transferJobAsync) {
     size_t dim = 32;
     size_t n = 500;
     size_t nLists = 120;
@@ -170,7 +170,7 @@ TYPED_TEST(RaftIvfTieredTest, transferJobAsync) {
 
     size_t k = 1;
 
-    // Create RaftIvfTiered index instance with a mock queue.
+    // Create CuvsIvfTiered index instance with a mock queue.
     VecSimParams params = createDefaultFlatParams(dim, nLists, 20);
     auto mock_thread_pool = tieredIndexMock();
     auto *tiered_index = this->createTieredIndex(&params, mock_thread_pool, flat_buffer_limit);
@@ -183,12 +183,12 @@ TYPED_TEST(RaftIvfTieredTest, transferJobAsync) {
     }
 
     mock_thread_pool.thread_pool_join();
-    // Verify that the vectors were inserted to RaftIvf as expected, that the jobqueue is empty,
+    // Verify that the vectors were inserted to CuvsIvf as expected, that the jobqueue is empty,
     ASSERT_EQ(tiered_index->indexSize(), n);
     ASSERT_EQ(tiered_index->backendIndex->indexSize(), n);
     ASSERT_EQ(tiered_index->frontendIndex->indexSize(), 0);
     ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
-    // Verify that the vectors were inserted to RaftIvf as expected
+    // Verify that the vectors were inserted to CuvsIvf as expected
     for (size_t i = 0; i < size_t{n / 10}; i++) {
         TEST_DATA_T expected_vector[dim];
         GenerateVector<TEST_DATA_T>(expected_vector, dim, i);
@@ -202,7 +202,7 @@ TYPED_TEST(RaftIvfTieredTest, transferJobAsync) {
     }
 }
 
-TYPED_TEST(RaftIvfTieredTest, transferJob_inplace) {
+TYPED_TEST(CuvsIvfTieredTest, transferJob_inplace) {
     size_t dim = 32;
     size_t n = 200;
     size_t nLists = 120;
@@ -210,7 +210,7 @@ TYPED_TEST(RaftIvfTieredTest, transferJob_inplace) {
 
     size_t k = 1;
 
-    // Create RaftIvfTiered index instance with a mock queue.
+    // Create CuvsIvfTiered index instance with a mock queue.
     VecSimParams params = createDefaultFlatParams(dim, nLists, 20);
     auto mock_thread_pool = tieredIndexMock();
     auto *tiered_index = this->createTieredIndex(&params, mock_thread_pool, flat_buffer_limit);
@@ -234,7 +234,7 @@ TYPED_TEST(RaftIvfTieredTest, transferJob_inplace) {
     ASSERT_EQ(tiered_index->frontendIndex->indexSize(), 2 * (n - flat_buffer_limit));
 }
 
-TYPED_TEST(RaftIvfTieredTest, deleteVector_backend) {
+TYPED_TEST(CuvsIvfTieredTest, deleteVector_backend) {
     size_t dim = 32;
     size_t n = 500;
     size_t nLists = 120;
@@ -243,7 +243,7 @@ TYPED_TEST(RaftIvfTieredTest, deleteVector_backend) {
 
     size_t k = 1;
 
-    // Create RaftIvfTiered index instance with a mock queue.
+    // Create CuvsIvfTiered index instance with a mock queue.
     VecSimParams params = createDefaultFlatParams(dim, nLists, nLists);
     auto mock_thread_pool = tieredIndexMock();
     auto *tiered_index = this->createTieredIndex(&params, mock_thread_pool, flat_buffer_limit);
@@ -287,7 +287,7 @@ TYPED_TEST(RaftIvfTieredTest, deleteVector_backend) {
     ASSERT_EQ(tiered_index->frontendIndex->indexSize(), 0);
 }
 
-TYPED_TEST(RaftIvfTieredTest, searchMetricCosine) {
+TYPED_TEST(CuvsIvfTieredTest, searchMetricCosine) {
     size_t dim = 32;
     size_t n = 25;
     size_t nLists = 5;
@@ -295,11 +295,11 @@ TYPED_TEST(RaftIvfTieredTest, searchMetricCosine) {
 
     size_t k = 10;
 
-    // Create RaftIvfTiered index instance with a mock queue.
+    // Create CuvsIvfTiered index instance with a mock queue.
     VecSimParams params = createDefaultFlatParams(dim, nLists, nLists);
 
     // Set the metric to cosine.
-    params.algoParams.raftIvfParams.metric = VecSimMetric_Cosine;
+    params.algoParams.cuvsIvfParams.metric = VecSimMetric_Cosine;
 
     auto mock_thread_pool = tieredIndexMock();
     auto *tiered_index = this->createTieredIndex(&params, mock_thread_pool, flat_buffer_limit);
@@ -343,7 +343,7 @@ TYPED_TEST(RaftIvfTieredTest, searchMetricCosine) {
     runTopKSearchTest(tiered_index, query, k, verify_cb);
 }
 
-TYPED_TEST(RaftIvfTieredTest, searchMetricIP) {
+TYPED_TEST(CuvsIvfTieredTest, searchMetricIP) {
     size_t dim = 4;
     size_t n = 25;
     size_t nLists = 5;
@@ -351,11 +351,11 @@ TYPED_TEST(RaftIvfTieredTest, searchMetricIP) {
 
     size_t k = 10;
 
-    // Create RaftIvfTiered index instance with a mock queue.
+    // Create CuvsIvfTiered index instance with a mock queue.
     VecSimParams params = createDefaultFlatParams(dim, nLists, nLists);
 
     // Set the metric to Inner Product.
-    params.algoParams.raftIvfParams.metric = VecSimMetric_IP;
+    params.algoParams.cuvsIvfParams.metric = VecSimMetric_IP;
 
     auto mock_thread_pool = tieredIndexMock();
     auto *tiered_index = this->createTieredIndex(&params, mock_thread_pool, flat_buffer_limit);

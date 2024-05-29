@@ -3,8 +3,8 @@
 #include "bm_vecsim_general.h"
 #include "VecSim/index_factories/tiered_factory.h"
 #ifdef USE_CUDA
-#include "VecSim/index_factories/raft_ivf_tiered_factory.h"
-#include "VecSim/algorithms/raft_ivf/ivf_tiered.h"
+#include "VecSim/index_factories/cuvs_ivf_tiered_factory.h"
+#include "VecSim/algorithms/cuvs_ivf/ivf_tiered.h"
 #endif
 
 template <typename index_type_t>
@@ -118,35 +118,35 @@ void BM_VecSimIndex<index_type_t>::Initialize() {
 #ifdef USE_CUDA
     // Create RAFFT IVF Flat tiered index.
     // Use one unique thread pool for the tiered index by changing the thread pool context.
-    VecSimParams params_flat = createDefaultRaftIvfFlatParams(dim, 10000, 100, false);
+    VecSimParams params_flat = createDefaultCuvsIvfFlatParams(dim, 10000, 100, false);
     tiered_params = {.jobQueue = &BM_VecSimGeneral::mock_thread_pool.jobQ,
                      .jobQueueCtx = mock_thread_pool.ctx,
                      .submitCb = tieredIndexMock::submit_callback,
                      .flatBufferLimit = n_vectors,
                      .primaryIndexParams = &params_flat,
-                     .specificParams = {.tieredRaftIvfParams = {.minVectorsInit = 
-                        size_t(n_vectors / params_flat.algoParams.raftIvfParams.nLists)}}};
+                     .specificParams = {.tieredCuvsIvfParams = {.minVectorsInit = 
+                        size_t(n_vectors / params_flat.algoParams.cuvsIvfParams.nLists)}}};
 
-    auto *tiered_raft_ivf_flat_index = reinterpret_cast<TieredRaftIvfIndex<float, float> *>(
-        TieredRaftIvfFactory::NewIndex(&tiered_params));
+    auto *tiered_cuvs_ivf_flat_index = reinterpret_cast<TieredCuvsIvfIndex<float, float> *>(
+        TieredCuvsIvfFactory::NewIndex(&tiered_params));
 
-    indices.push_back(tiered_raft_ivf_flat_index);
+    indices.push_back(tiered_cuvs_ivf_flat_index);
 
-    // Create RAFT IVF PQ tiered index.
+    // Create CUVS IVF PQ tiered index.
     // Use one unique thread pool for the tiered index by changing the thread pool context.
-    VecSimParams params_pq = createDefaultRaftIvfPQParams(dim, 5000, 100);
+    VecSimParams params_pq = createDefaultCuvsIvfPQParams(dim, 5000, 100);
     tiered_params = {.jobQueue = &BM_VecSimGeneral::mock_thread_pool.jobQ,
                      .jobQueueCtx = mock_thread_pool.ctx,
                      .submitCb = tieredIndexMock::submit_callback,
                      .flatBufferLimit = n_vectors,
                      .primaryIndexParams = &params_pq,
-                     .specificParams = {.tieredRaftIvfParams = {.minVectorsInit = 
-                        size_t(n_vectors / params_pq.algoParams.raftIvfParams.nLists)}}};
+                     .specificParams = {.tieredCuvsIvfParams = {.minVectorsInit = 
+                        size_t(n_vectors / params_pq.algoParams.cuvsIvfParams.nLists)}}};
 
-    auto *tiered_raft_ivf_pq_index = reinterpret_cast<TieredRaftIvfIndex<float, float> *>(
-        TieredRaftIvfFactory::NewIndex(&tiered_params));
+    auto *tiered_cuvs_ivf_pq_index = reinterpret_cast<TieredCuvsIvfIndex<float, float> *>(
+        TieredCuvsIvfFactory::NewIndex(&tiered_params));
 
-    indices.push_back(tiered_raft_ivf_pq_index);
+    indices.push_back(tiered_cuvs_ivf_pq_index);
 #endif
 
     // Add the same vectors to Flat index.
@@ -156,8 +156,8 @@ void BM_VecSimIndex<index_type_t>::Initialize() {
         size_t label = CastToHNSW(indices[VecSimAlgo_HNSWLIB])->getExternalLabel(i);
         VecSimIndex_AddVector(indices[VecSimAlgo_BF], blob, label);
 #ifdef USE_CUDA
-        VecSimIndex_AddVector(indices[VecSimAlgo_RAFT_IVFFLAT], blob, label);
-        VecSimIndex_AddVector(indices[VecSimAlgo_RAFT_IVFPQ], blob, label);
+        VecSimIndex_AddVector(indices[VecSimAlgo_CUVS_IVFFLAT], blob, label);
+        VecSimIndex_AddVector(indices[VecSimAlgo_CUVS_IVFPQ], blob, label);
 #endif
     }
     mock_thread_pool.thread_pool_wait(100);

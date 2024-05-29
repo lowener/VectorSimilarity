@@ -9,7 +9,7 @@
 #include "brute_force_factory.h"
 #include "tiered_factory.h"
 #ifdef USE_CUDA
-#include "raft_ivf_factory.h"
+#include "cuvs_ivf_factory.h"
 #endif
 #include "VecSim/vec_sim_index.h"
 
@@ -28,13 +28,13 @@ VecSimIndex *NewIndex(const VecSimParams *params) {
             index = BruteForceFactory::NewIndex(params);
             break;
         }
-        case VecSimAlgo_RAFT_IVFFLAT:
-        case VecSimAlgo_RAFT_IVFPQ: {
+        case VecSimAlgo_CUVS_IVFFLAT:
+        case VecSimAlgo_CUVS_IVFPQ: {
 #ifdef USE_CUDA
-            index = RaftIvfFactory::NewIndex(&params->algoParams.raftIvfParams);
+            index = CuvsIvfFactory::NewIndex(&params->algoParams.cuvsIvfParams);
 #else
             throw std::runtime_error(
-                "RAFT_IVFFLAT and RAFT_IVFPQ are not supported in CPU version");
+                "CUVS_IVFFLAT and CUVS_IVFPQ are not supported in CPU version");
 #endif
             break;
         }
@@ -55,12 +55,12 @@ size_t EstimateInitialSize(const VecSimParams *params) {
         return HNSWFactory::EstimateInitialSize(&params->algoParams.hnswParams);
     case VecSimAlgo_BF:
         return BruteForceFactory::EstimateInitialSize(&params->algoParams.bfParams);
-    case VecSimAlgo_RAFT_IVFFLAT:
-    case VecSimAlgo_RAFT_IVFPQ:
+    case VecSimAlgo_CUVS_IVFFLAT:
+    case VecSimAlgo_CUVS_IVFPQ:
 #ifdef USE_CUDA
-        return RaftIvfFactory::EstimateInitialSize(&params->algoParams.raftIvfParams);
+        return CuvsIvfFactory::EstimateInitialSize(&params->algoParams.cuvsIvfParams);
 #else
-        throw std::runtime_error("RAFT_IVFFLAT and RAFT_IVFPQ are not supported in CPU version");
+        throw std::runtime_error("CUVS_IVFFLAT and CUVS_IVFPQ are not supported in CPU version");
 #endif
     case VecSimAlgo_TIERED:
         return TieredFactory::EstimateInitialSize(&params->algoParams.tieredParams);
@@ -74,12 +74,12 @@ size_t EstimateElementSize(const VecSimParams *params) {
         return HNSWFactory::EstimateElementSize(&params->algoParams.hnswParams);
     case VecSimAlgo_BF:
         return BruteForceFactory::EstimateElementSize(&params->algoParams.bfParams);
-    case VecSimAlgo_RAFT_IVFFLAT:
-    case VecSimAlgo_RAFT_IVFPQ:
+    case VecSimAlgo_CUVS_IVFFLAT:
+    case VecSimAlgo_CUVS_IVFPQ:
 #ifdef USE_CUDA
-        return RaftIvfFactory::EstimateElementSize(&params->algoParams.raftIvfParams);
+        return CuvsIvfFactory::EstimateElementSize(&params->algoParams.cuvsIvfParams);
 #else
-        throw std::runtime_error("RAFT_IVFFLAT and RAFT_IVFPQ are not supported in CPU version");
+        throw std::runtime_error("CUVS_IVFFLAT and CUVS_IVFPQ are not supported in CPU version");
 #endif
     case VecSimAlgo_TIERED:
         return TieredFactory::EstimateElementSize(&params->algoParams.tieredParams);

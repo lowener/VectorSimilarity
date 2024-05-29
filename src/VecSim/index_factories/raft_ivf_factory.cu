@@ -1,28 +1,28 @@
 #include "VecSim/index_factories/brute_force_factory.h"
-#include "VecSim/algorithms/raft_ivf/ivf.cuh"
+#include "VecSim/algorithms/cuvs_ivf/ivf.cuh"
 
-namespace RaftIvfFactory {
+namespace CuvsIvfFactory {
 
 static AbstractIndexInitParams NewAbstractInitParams(const VecSimParams *params) {
 
-    const RaftIvfParams *raftIvfParams = &params->algoParams.raftIvfParams;
+    const CuvsIvfParams *cuvsIvfParams = &params->algoParams.cuvsIvfParams;
     AbstractIndexInitParams abstractInitParams = {
         .allocator = VecSimAllocator::newVecsimAllocator(),
-        .dim = raftIvfParams->dim,
-        .vecType = raftIvfParams->type,
-        .metric = raftIvfParams->metric,
-        //.multi = raftIvfParams->multi,
+        .dim = cuvsIvfParams->dim,
+        .vecType = cuvsIvfParams->type,
+        .metric = cuvsIvfParams->metric,
+        //.multi = cuvsIvfParams->multi,
         //.logCtx = params->logCtx
     };
     return abstractInitParams;
 }
 
-VecSimIndex *NewIndex(const RaftIvfParams *raftIvfParams,
+VecSimIndex *NewIndex(const CuvsIvfParams *cuvsIvfParams,
                       const AbstractIndexInitParams &abstractInitParams) {
-    assert(raftIvfParams->type == VecSimType_FLOAT32 && "Invalid IVF data type algorithm");
-    if (raftIvfParams->type == VecSimType_FLOAT32) {
+    assert(cuvsIvfParams->type == VecSimType_FLOAT32 && "Invalid IVF data type algorithm");
+    if (cuvsIvfParams->type == VecSimType_FLOAT32) {
         return new (abstractInitParams.allocator)
-            RaftIvfIndex<float, float>(raftIvfParams, abstractInitParams);
+            CuvsIvfIndex<float, float>(cuvsIvfParams, abstractInitParams);
     }
 
     // If we got here something is wrong.
@@ -30,54 +30,54 @@ VecSimIndex *NewIndex(const RaftIvfParams *raftIvfParams,
 }
 
 VecSimIndex *NewIndex(const VecSimParams *params) {
-    const RaftIvfParams *raftIvfParams = &params->algoParams.raftIvfParams;
+    const CuvsIvfParams *cuvsIvfParams = &params->algoParams.cuvsIvfParams;
     AbstractIndexInitParams abstractInitParams = NewAbstractInitParams(params);
-    return NewIndex(raftIvfParams, NewAbstractInitParams(params));
+    return NewIndex(cuvsIvfParams, NewAbstractInitParams(params));
 }
 
-VecSimIndex *NewIndex(const RaftIvfParams *raftIvfParams) {
-    VecSimParams params = {.algoParams{.raftIvfParams = RaftIvfParams{*raftIvfParams}}};
+VecSimIndex *NewIndex(const CuvsIvfParams *cuvsIvfParams) {
+    VecSimParams params = {.algoParams{.cuvsIvfParams = CuvsIvfParams{*cuvsIvfParams}}};
     return NewIndex(&params);
 }
 
-size_t EstimateInitialSize(const RaftIvfParams *raftIvfParams) {
+size_t EstimateInitialSize(const CuvsIvfParams *cuvsIvfParams) {
     size_t allocations_overhead = VecSimAllocator::getAllocationOverheadSize();
 
     // Constant part (not effected by parameters).
     size_t est = sizeof(VecSimAllocator) + allocations_overhead;
-    est += sizeof(RaftIvfIndex<float, float>); // Object size
-    if (!raftIvfParams->usePQ) {
+    est += sizeof(CuvsIvfIndex<float, float>); // Object size
+    if (!cuvsIvfParams->usePQ) {
         // Size of each cluster data
-        est += raftIvfParams->nLists *
-               sizeof(raft::neighbors::ivf_flat::list_data<float, std::int64_t>);
+        est += cuvsIvfParams->nLists *
+               sizeof(cuvs::neighbors::ivf_flat::list_data<float, std::int64_t>);
         // Vector of shared ptr to cluster
-        est += raftIvfParams->nLists *
-               sizeof(std::shared_ptr<raft::neighbors::ivf_flat::list_data<float, std::int64_t>>);
+        est += cuvsIvfParams->nLists *
+               sizeof(std::shared_ptr<cuvs::neighbors::ivf_flat::list_data<float, std::int64_t>>);
     } else {
         // Size of each cluster data
-        est += raftIvfParams->nLists * sizeof(raft::neighbors::ivf_pq::list_data<std::int64_t>);
+        est += cuvsIvfParams->nLists * sizeof(cuvs::neighbors::ivf_pq::list_data<std::int64_t>);
         // accum_sorted_sizes_ Array
-        est += raftIvfParams->nLists * sizeof(std::int64_t);
+        est += cuvsIvfParams->nLists * sizeof(std::int64_t);
         // vector of shared ptr to cluster
-        est += raftIvfParams->nLists *
-               sizeof(std::shared_ptr<raft::neighbors::ivf_pq::list_data<std::int64_t>>);
+        est += cuvsIvfParams->nLists *
+               sizeof(std::shared_ptr<cuvs::neighbors::ivf_pq::list_data<std::int64_t>>);
     }
     return est;
 }
 
-size_t EstimateElementSize(const RaftIvfParams *raftIvfParams) {
+size_t EstimateElementSize(const CuvsIvfParams *cuvsIvfParams) {
     // Those elements are stored only on GPU.
     size_t est = 0;
-    if (!raftIvfParams->usePQ) {
+    if (!cuvsIvfParams->usePQ) {
         // Size of vec + size of label.
-        est += raftIvfParams->dim * VecSimType_sizeof(raftIvfParams->type) + sizeof(labelType);
+        est += cuvsIvfParams->dim * VecSimType_sizeof(cuvsIvfParams->type) + sizeof(labelType);
     } else {
-        size_t pq_dim = raftIvfParams->pqDim;
+        size_t pq_dim = cuvsIvfParams->pqDim;
         if (pq_dim == 0) // Estimation.
-            pq_dim = raftIvfParams->dim >= 128 ? raftIvfParams->dim / 2 : raftIvfParams->dim;
+            pq_dim = cuvsIvfParams->dim >= 128 ? cuvsIvfParams->dim / 2 : cuvsIvfParams->dim;
         // Size of vec after compression + size of label
-        est += raftIvfParams->pqBits * pq_dim + sizeof(labelType);
+        est += cuvsIvfParams->pqBits * pq_dim + sizeof(labelType);
     }
     return est;
 }
-}; // namespace RaftIvfFactory
+}; // namespace CuvsIvfFactory

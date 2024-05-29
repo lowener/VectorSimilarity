@@ -9,35 +9,33 @@
 #include <cuda_runtime.h>
 #include <library_types.h>
 #include "VecSim/vec_sim.h"
-// For VecSimMetric, RaftIvfParams, labelType
+// For VecSimMetric, CuvsIvfParams, labelType
 #include "VecSim/vec_sim_common.h"
 // For VecSimIndexAbstract
 #include "VecSim/vec_sim_index.h"
 #include "VecSim/query_result_definitions.h" // VecSimQueryResult VecSimQueryReply
-#include "VecSim/algorithms/raft_ivf/ivf_interface.h"  // RaftIvfInterface
+#include "VecSim/algorithms/cuvs_ivf/ivf_interface.h"  // CuvsIvfInterface
 #include "VecSim/memory/vecsim_malloc.h"
 
-#include <raft/core/bitset.cuh>
+#include <raft/core/bitset.hpp>
 #include <raft/core/device_resources_manager.hpp>
 #include <raft/core/device_resources.hpp>
 #include <raft/core/error.hpp>
-#include <raft/distance/distance_types.hpp>
+#include <cuvs/distance/distance_types.hpp>
 #include <raft/linalg/init.cuh>
-#include <raft/neighbors/ivf_flat_types.hpp>
-#include <raft/neighbors/ivf_flat.cuh>
-#include <raft/neighbors/ivf_pq_types.hpp>
-#include <raft/neighbors/ivf_pq.cuh>
-#include <raft/neighbors/sample_filter.cuh>
+#include <cuvs/neighbors/ivf_flat.hpp>
+#include <cuvs/neighbors/ivf_pq.hpp>
+#include <cuvs/neighbors/sample_filter.hpp>
 
-inline auto constexpr GetRaftDistanceType(VecSimMetric vsm) {
-    auto result = raft::distance::DistanceType{};
+inline auto constexpr GetCuvsDistanceType(VecSimMetric vsm) {
+    auto result = cuvs::distance::DistanceType{};
     switch (vsm) {
     case VecSimMetric_L2:
-        result = raft::distance::DistanceType::L2Expanded;
+        result = cuvs::distance::DistanceType::L2Expanded;
         break;
     case VecSimMetric_IP:
     case VecSimMetric_Cosine:
-        result = raft::distance::DistanceType::InnerProduct;
+        result = cuvs::distance::DistanceType::InnerProduct;
         break;
     default:
         throw raft::exception("Metric not supported");
@@ -45,14 +43,14 @@ inline auto constexpr GetRaftDistanceType(VecSimMetric vsm) {
     return result;
 }
 
-inline auto constexpr GetRaftCodebookKind(RaftIVFPQCodebookKind vss_codebook) {
-    auto result = raft::neighbors::ivf_pq::codebook_gen{};
+inline auto constexpr GetCuvsCodebookKind(CuvsIVFPQCodebookKind vss_codebook) {
+    auto result = cuvs::neighbors::ivf_pq::codebook_gen{};
     switch (vss_codebook) {
-    case RaftIVFPQCodebookKind_PerCluster:
-        result = raft::neighbors::ivf_pq::codebook_gen::PER_CLUSTER;
+    case CuvsIVFPQCodebookKind_PerCluster:
+        result = cuvs::neighbors::ivf_pq::codebook_gen::PER_CLUSTER;
         break;
-    case RaftIVFPQCodebookKind_PerSubspace:
-        result = raft::neighbors::ivf_pq::codebook_gen::PER_SUBSPACE;
+    case CuvsIVFPQCodebookKind_PerSubspace:
+        result = cuvs::neighbors::ivf_pq::codebook_gen::PER_SUBSPACE;
         break;
     default:
         throw raft::exception("Unexpected IVFPQ codebook kind");
@@ -89,63 +87,63 @@ void init_raft_resources() {
 }
 
 template <typename DataType, typename DistType = DataType>
-struct RaftIvfIndex : public RaftIvfInterface<DataType, DistType> {
+struct CuvsIvfIndex : public CuvsIvfInterface<DataType, DistType> {
     using data_type = DataType;
     using dist_type = DistType;
 
 private:
     // Allow either IVF-Flat or IVF-PQ parameters
-    using build_params_t = std::variant<raft::neighbors::ivf_flat::index_params,
-                                        raft::neighbors::ivf_pq::index_params>;
-    using search_params_t = std::variant<raft::neighbors::ivf_flat::search_params,
-                                         raft::neighbors::ivf_pq::search_params>;
-    using internal_idx_t = std::uint64_t;
-    using index_flat_t = raft::neighbors::ivf_flat::index<data_type, internal_idx_t>;
-    using index_pq_t = raft::neighbors::ivf_pq::index<internal_idx_t>;
+    using build_params_t = std::variant<cuvs::neighbors::ivf_flat::index_params,
+                                        cuvs::neighbors::ivf_pq::index_params>;
+    using search_params_t = std::variant<cuvs::neighbors::ivf_flat::search_params,
+                                         cuvs::neighbors::ivf_pq::search_params>;
+    using internal_idx_t = std::int64_t;
+    using index_flat_t = cuvs::neighbors::ivf_flat::index<data_type, internal_idx_t>;
+    using index_pq_t = cuvs::neighbors::ivf_pq::index<internal_idx_t>;
     using ann_index_t = std::variant<index_flat_t, index_pq_t>;
 
 public:
-    RaftIvfIndex(const RaftIvfParams *raftIvfParams, const AbstractIndexInitParams &commonParams)
-        : RaftIvfInterface<dist_type>{commonParams},
-          build_params_{raftIvfParams->usePQ ? build_params_t{std::in_place_index<1>}
+    CuvsIvfIndex(const CuvsIvfParams *cuvsIvfParams, const AbstractIndexInitParams &commonParams)
+        : CuvsIvfInterface<dist_type>{commonParams},
+          build_params_{cuvsIvfParams->usePQ ? build_params_t{std::in_place_index<1>}
                                              : build_params_t{std::in_place_index<0>}},
-          search_params_{raftIvfParams->usePQ ? search_params_t{std::in_place_index<1>}
+          search_params_{cuvsIvfParams->usePQ ? search_params_t{std::in_place_index<1>}
                                               : search_params_t{std::in_place_index<0>}},
           index_{std::nullopt}, deleted_indices_{std::nullopt}, numDeleted_{0},
           idToLabelLookup_{this->allocator}, labelToIdLookup_{this->allocator} {
         std::visit(
-            [raftIvfParams](auto &&inner) {
-                inner.metric = GetRaftDistanceType(raftIvfParams->metric);
-                inner.n_lists = raftIvfParams->nLists;
-                inner.kmeans_n_iters = raftIvfParams->kmeans_nIters;
+            [cuvsIvfParams](auto &&inner) {
+                inner.metric = GetCuvsDistanceType(cuvsIvfParams->metric);
+                inner.n_lists = cuvsIvfParams->nLists;
+                inner.kmeans_n_iters = cuvsIvfParams->kmeans_nIters;
                 inner.add_data_on_build = false;
-                inner.kmeans_trainset_fraction = raftIvfParams->kmeans_trainsetFraction;
-                inner.conservative_memory_allocation = raftIvfParams->conservativeMemoryAllocation;
+                inner.kmeans_trainset_fraction = cuvsIvfParams->kmeans_trainsetFraction;
+                inner.conservative_memory_allocation = cuvsIvfParams->conservativeMemoryAllocation;
                 if constexpr (std::is_same_v<decltype(inner),
-                                             raft::neighbors::ivf_flat::index_params>) {
-                    inner.adaptive_centers = raftIvfParams->adaptiveCenters;
+                                             cuvs::neighbors::ivf_flat::index_params>) {
+                    inner.adaptive_centers = cuvsIvfParams->adaptiveCenters;
                 } else if constexpr (std::is_same_v<decltype(inner),
-                                                    raft::neighbors::ivf_pq::index_params>) {
-                    inner.pq_bits = raftIvfParams->pqBits;
-                    inner.pq_dim = raftIvfParams->pqDim;
-                    inner.codebook_kind = GetRaftCodebookKind(raftIvfParams->codebookKind);
+                                                    cuvs::neighbors::ivf_pq::index_params>) {
+                    inner.pq_bits = cuvsIvfParams->pqBits;
+                    inner.pq_dim = cuvsIvfParams->pqDim;
+                    inner.codebook_kind = GetCuvsCodebookKind(cuvsIvfParams->codebookKind);
                 }
             },
             build_params_);
         std::visit(
-            [raftIvfParams](auto &&inner) {
-                inner.n_probes = raftIvfParams->nProbes;
+            [cuvsIvfParams](auto &&inner) {
+                inner.n_probes = cuvsIvfParams->nProbes;
                 if constexpr (std::is_same_v<decltype(inner),
-                                             raft::neighbors::ivf_pq::search_params>) {
-                    inner.lut_dtype = GetCudaType(raftIvfParams->lutType);
+                                             cuvs::neighbors::ivf_pq::search_params>) {
+                    inner.lut_dtype = GetCudaType(cuvsIvfParams->lutType);
                     inner.internal_distance_dtype =
-                        GetCudaType(raftIvfParams->internalDistanceType);
-                    inner.preferred_shmem_carvout = raftIvfParams->preferredShmemCarveout;
+                        GetCudaType(cuvsIvfParams->internalDistanceType);
+                    inner.preferred_shmem_carvout = cuvsIvfParams->preferredShmemCarveout;
                 }
             },
             search_params_);
 
-        cosine_postprocess_ = raftIvfParams->metric == VecSimMetric_Cosine || raftIvfParams->metric == VecSimMetric_IP;
+        cosine_postprocess_ = cuvsIvfParams->metric == VecSimMetric_Cosine || cuvsIvfParams->metric == VecSimMetric_IP;
     }
     int addVector(const void *vector_data, labelType label, void *auxiliaryCtx = nullptr) override {
         return addVectorBatch(vector_data, &label, 1, auxiliaryCtx);
@@ -168,24 +166,24 @@ public:
         raft::linalg::range(ids.data_handle(), first_id, last_id, res.get_stream());
 
         // Build index if it does not exist, and extend it with the new vectors and their ids
-        if (std::holds_alternative<raft::neighbors::ivf_flat::index_params>(build_params_)) {
+        if (std::holds_alternative<cuvs::neighbors::ivf_flat::index_params>(build_params_)) {
             if (!index_) {
-                index_ = raft::neighbors::ivf_flat::build(
-                    res, std::get<raft::neighbors::ivf_flat::index_params>(build_params_),
+                index_ = cuvs::neighbors::ivf_flat::build(
+                    res, std::get<cuvs::neighbors::ivf_flat::index_params>(build_params_),
                     raft::make_const_mdspan(vector_data_gpu.view()));
                 deleted_indices_ = {raft::core::bitset<uint32_t, internal_idx_t>(res, 0)};
             }
-            raft::neighbors::ivf_flat::extend(res, raft::make_const_mdspan(vector_data_gpu.view()),
+            cuvs::neighbors::ivf_flat::extend(res, raft::make_const_mdspan(vector_data_gpu.view()),
                                               {raft::make_const_mdspan(ids.view())},
                                               &std::get<index_flat_t>(*index_));
         } else {
             if (!index_) {
-                index_ = raft::neighbors::ivf_pq::build(
-                    res, std::get<raft::neighbors::ivf_pq::index_params>(build_params_),
+                index_ = cuvs::neighbors::ivf_pq::build(
+                    res, std::get<cuvs::neighbors::ivf_pq::index_params>(build_params_),
                     raft::make_const_mdspan(vector_data_gpu.view()));
                 deleted_indices_ = {raft::core::bitset<uint32_t, internal_idx_t>(res, 0)};
             }
-            raft::neighbors::ivf_pq::extend(res, raft::make_const_mdspan(vector_data_gpu.view()),
+            cuvs::neighbors::ivf_pq::extend(res, raft::make_const_mdspan(vector_data_gpu.view()),
                                             {raft::make_const_mdspan(ids.view())},
                                             &std::get<index_pq_t>(*index_));
         }
@@ -263,19 +261,19 @@ public:
         // Copy query vector to device
         raft::copy(vector_data_gpu.data_handle(), static_cast<const data_type *>(queryBlob),
                    this->dim, res.get_stream());
-        auto bitset_filter = raft::neighbors::filtering::bitset_filter(deleted_indices_->view());
+        auto bitset_filter = cuvs::neighbors::filtering::bitset_filter(deleted_indices_->view());
 
         // Perform correct search based on index type
         if (std::holds_alternative<index_flat_t>(*index_)) {
-            raft::neighbors::ivf_flat::search_with_filtering<data_type, internal_idx_t,
+            cuvs::neighbors::ivf_flat::search_with_filtering<data_type, internal_idx_t,
                                                              decltype(bitset_filter)>(
-                res, std::get<raft::neighbors::ivf_flat::search_params>(search_params_),
+                res, std::get<cuvs::neighbors::ivf_flat::search_params>(search_params_),
                 std::get<index_flat_t>(*index_), raft::make_const_mdspan(vector_data_gpu.view()),
                 neighbors_gpu.view(), distances_gpu.view(), bitset_filter);
         } else {
-            raft::neighbors::ivf_pq::search_with_filtering<data_type, internal_idx_t,
+            cuvs::neighbors::ivf_pq::search_with_filtering<data_type, internal_idx_t,
                                                            decltype(bitset_filter)>(
-                res, std::get<raft::neighbors::ivf_pq::search_params>(search_params_),
+                res, std::get<cuvs::neighbors::ivf_pq::search_params>(search_params_),
                 std::get<index_pq_t>(*index_), raft::make_const_mdspan(vector_data_gpu.view()),
                 neighbors_gpu.view(), distances_gpu.view(), bitset_filter);
         }
@@ -305,10 +303,7 @@ public:
     }
 
     virtual VecSimQueryReply *rangeQuery(const void *queryBlob, double radius,
-                                         VecSimQueryParams *queryParams) const override {
-        assert(!"RangeQuery not implemented");
-        return nullptr;
-    }
+                                         VecSimQueryParams *queryParams) const override;
     VecSimInfoIterator *infoIterator() const override {
         assert(!"infoIterator not implemented");
         return nullptr;
@@ -330,16 +325,20 @@ public:
     size_t indexSize() const override {
         auto result = size_t{};
         if (index_) {
-            result = std::visit([](auto &&index) { return index.size(); }, *index_);
+            if (std::holds_alternative<index_flat_t>(*index_)) {
+                result = std::get<index_flat_t>(*index_).size();
+            } else {
+                result = std::get<index_pq_t>(*index_).size();
+            }
         }
         return result - this->numDeleted_;
     }
     VecSimIndexBasicInfo basicInfo() const override {
         VecSimIndexBasicInfo info = this->getBasicInfo();
-        if (std::holds_alternative<raft::neighbors::ivf_flat::index_params>(build_params_)) {
-            info.algo = VecSimAlgo_RAFT_IVFFLAT;
+        if (std::holds_alternative<cuvs::neighbors::ivf_flat::index_params>(build_params_)) {
+            info.algo = VecSimAlgo_CUVS_IVFFLAT;
         } else {
-            info.algo = VecSimAlgo_RAFT_IVFPQ;
+            info.algo = VecSimAlgo_CUVS_IVFPQ;
         }
         info.isTiered = false;
         return info;
@@ -347,15 +346,15 @@ public:
     VecSimIndexInfo info() const override {
         VecSimIndexInfo info;
         info.commonInfo = this->getCommonInfo();
-        info.raftIvfInfo.nLists = nLists();
-        if (std::holds_alternative<raft::neighbors::ivf_pq::index_params>(build_params_)) {
-            info.commonInfo.basicInfo.algo = VecSimAlgo_RAFT_IVFPQ;
+        info.cuvsIvfInfo.nLists = nLists();
+        if (std::holds_alternative<cuvs::neighbors::ivf_pq::index_params>(build_params_)) {
+            info.commonInfo.basicInfo.algo = VecSimAlgo_CUVS_IVFPQ;
             const auto build_params_pq =
-                std::get<raft::neighbors::ivf_pq::index_params>(build_params_);
-            info.raftIvfInfo.pqBits = build_params_pq.pq_bits;
-            info.raftIvfInfo.pqDim = build_params_pq.pq_dim;
+                std::get<cuvs::neighbors::ivf_pq::index_params>(build_params_);
+            info.cuvsIvfInfo.pqBits = build_params_pq.pq_bits;
+            info.cuvsIvfInfo.pqDim = build_params_pq.pq_dim;
         } else {
-            info.commonInfo.basicInfo.algo = VecSimAlgo_RAFT_IVFFLAT;
+            info.commonInfo.basicInfo.algo = VecSimAlgo_CUVS_IVFFLAT;
         }
         return info;
     }
@@ -383,3 +382,11 @@ private:
 
     bool cosine_postprocess_ = false;
 };
+
+template <typename DataType, typename DistType>
+VecSimQueryReply *
+CuvsIvfIndex<DataType, DistType>::rangeQuery(const void *queryBlob, double radius,
+                                                VecSimQueryParams *queryParams) const {
+        assert(!"RangeQuery not implemented");
+        return nullptr;
+}

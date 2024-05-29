@@ -284,9 +284,9 @@ VecSimIndexInfo VecSimTieredIndex<DataType, DistType>::info() const {
     case VecSimAlgo_HNSWLIB:
         info.tieredInfo.backendInfo.hnswInfo = backendInfo.hnswInfo;
         break;
-    case VecSimAlgo_RAFT_IVFFLAT:
-    case VecSimAlgo_RAFT_IVFPQ:
-        info.tieredInfo.backendInfo.raftIvfInfo = backendInfo.raftIvfInfo;
+    case VecSimAlgo_CUVS_IVFFLAT:
+    case VecSimAlgo_CUVS_IVFPQ:
+        info.tieredInfo.backendInfo.cuvsIvfInfo = backendInfo.cuvsIvfInfo;
         break;
     case VecSimAlgo_BF:
     case VecSimAlgo_TIERED:

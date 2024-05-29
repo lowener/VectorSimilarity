@@ -2,7 +2,7 @@
 
 #include "bm_vecsim_index.h"
 #ifdef USE_CUDA
-#include "VecSim/algorithms/raft_ivf/ivf_tiered.h"
+#include "VecSim/algorithms/cuvs_ivf/ivf_tiered.h"
 #endif
 
 size_t BM_VecSimGeneral::block_size = 1024;
@@ -29,16 +29,16 @@ public:
     static void TopK_HNSW(benchmark::State &st, unsigned short index_offset = 0);
     static void TopK_Tiered(benchmark::State &st, unsigned short index_offset = 0);
 #ifdef USE_CUDA
-    // Run TopK using Raft IVF tiered and flat index and calculate the recall of the Raft IVF
+    // Run TopK using Cuvs IVF tiered and flat index and calculate the recall of the Cuvs IVF
     // algorithm with respect to the results returned by the flat index.
-    static void TopK_TieredRaftIVF(benchmark::State &st, unsigned short index_offset = 0);
+    static void TopK_TieredCuvsIVF(benchmark::State &st, unsigned short index_offset = 0);
 #endif
 
     // Does nothing but returning the index memory.
     static void Memory_FLAT(benchmark::State &st, unsigned short index_offset = 0);
     static void Memory_HNSW(benchmark::State &st, unsigned short index_offset = 0);
     static void Memory_Tiered(benchmark::State &st, unsigned short index_offset = 0);
-    static void Memory_TieredRaftIVF(benchmark::State &st, unsigned short index_offset = 0);
+    static void Memory_TieredCuvsIVF(benchmark::State &st, unsigned short index_offset = 0);
 };
 
 template <typename index_type_t>
@@ -92,14 +92,14 @@ void BM_VecSimCommon<index_type_t>::Memory_Tiered(benchmark::State &st,
         (double)VecSimIndex_Info(INDICES[VecSimAlgo_TIERED + index_offset]).commonInfo.memory;
 }
 template <typename index_type_t>
-void BM_VecSimCommon<index_type_t>::Memory_TieredRaftIVF(benchmark::State &st,
+void BM_VecSimCommon<index_type_t>::Memory_TieredCuvsIVF(benchmark::State &st,
                                                              unsigned short index_offset) {
 
     for (auto _ : st) {
         // Do nothing...
     }
     st.counters["memory"] =
-        (double)VecSimIndex_Info(INDICES[VecSimAlgo_RAFT_IVFFLAT + index_offset]).commonInfo.memory;
+        (double)VecSimIndex_Info(INDICES[VecSimAlgo_CUVS_IVFFLAT + index_offset]).commonInfo.memory;
 }
 
 // TopK search BM
@@ -178,14 +178,14 @@ void BM_VecSimCommon<index_type_t>::TopK_Tiered(benchmark::State &st, unsigned s
 
 #ifdef USE_CUDA
 template <typename index_type_t>
-void BM_VecSimCommon<index_type_t>::TopK_TieredRaftIVF(benchmark::State &st,
+void BM_VecSimCommon<index_type_t>::TopK_TieredCuvsIVF(benchmark::State &st,
                                                        unsigned short index_offset) {
     size_t k = st.range(0);
     size_t n_probes = st.range(1);
     std::atomic_int correct = 0;
     std::atomic_int iter = 0;
     auto *tiered_index =
-        reinterpret_cast<TieredRaftIvfIndex<data_t, data_t> *>(INDICES[VecSimAlgo_RAFT_IVFFLAT + index_offset]);
+        reinterpret_cast<TieredCuvsIvfIndex<data_t, data_t> *>(INDICES[VecSimAlgo_CUVS_IVFFLAT + index_offset]);
     size_t total_iters = 50;
     tiered_index->setNProbes(n_probes);
     VecSimQueryReply *all_results[total_iters];
@@ -195,7 +195,7 @@ void BM_VecSimCommon<index_type_t>::TopK_TieredRaftIVF(benchmark::State &st,
         auto *search_job = reinterpret_cast<tieredIndexMock::SearchJobMock *>(job);
         VecSimQueryParams query_params{.batchSize = 1};
         size_t cur_iter = search_job->iter;
-        auto results = VecSimIndex_TopKQuery(INDICES[VecSimAlgo_RAFT_IVFFLAT],
+        auto results = VecSimIndex_TopKQuery(INDICES[VecSimAlgo_CUVS_IVFFLAT],
                                              QUERIES[cur_iter % N_QUERIES].data(), search_job->k,
                                              &query_params, BY_SCORE);
         search_job->all_results[cur_iter] = results;
@@ -206,7 +206,7 @@ void BM_VecSimCommon<index_type_t>::TopK_TieredRaftIVF(benchmark::State &st,
         auto *search_job = reinterpret_cast<tieredIndexMock::SearchJobMock *>(job);
         VecSimQueryParams query_params{.batchSize = 1};
         size_t cur_iter = search_job->iter;
-        auto results = VecSimIndex_TopKQuery(INDICES[VecSimAlgo_RAFT_IVFPQ],
+        auto results = VecSimIndex_TopKQuery(INDICES[VecSimAlgo_CUVS_IVFPQ],
                                              QUERIES[cur_iter % N_QUERIES].data(), search_job->k,
                                              &query_params, BY_SCORE);
         search_job->all_results[cur_iter] = results;
@@ -282,7 +282,7 @@ void BM_VecSimCommon<index_type_t>::TopK_TieredRaftIVF(benchmark::State &st,
         ->Unit(benchmark::kMillisecond)
 
 #ifdef USE_CUDA
-#define REGISTER_TopK_TieredRaftIVF(BM_CLASS, BM_FUNC)                                    \
+#define REGISTER_TopK_TieredCuvsIVF(BM_CLASS, BM_FUNC)                                    \
     BENCHMARK_REGISTER_F(BM_CLASS, BM_FUNC)                                                        \
         ->Args({10, 200})                                                                          \
         ->Args({10, 500})                                                                          \

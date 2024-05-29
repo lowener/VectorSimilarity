@@ -36,8 +36,8 @@ add_executable(test_spaces test_spaces.cpp)
 add_executable(test_common ../utils/mock_thread_pool.cpp test_utils.cpp test_common.cpp)
 
 if(USE_CUDA)
-	add_executable(test_raftivf ../utils/mock_thread_pool.cpp test_raft_ivf_tiered.cpp test_utils.cpp)
-	target_link_libraries(test_raftivf PUBLIC gtest_main VectorSimilarity PRIVATE raft::raft)
+	add_executable(test_cuvsivf ../utils/mock_thread_pool.cpp test_cuvs_ivf_tiered.cpp test_utils.cpp)
+	target_link_libraries(test_cuvsivf PUBLIC gtest_main VectorSimilarity PRIVATE cuvs::cuvs)
 endif()
 
 target_link_libraries(test_hnsw PUBLIC gtest_main VectorSimilarity)
@@ -57,5 +57,5 @@ gtest_discover_tests(test_spaces)
 gtest_discover_tests(test_common)
 
 if(USE_CUDA)
-	gtest_discover_tests(test_raftivf)
+	gtest_discover_tests(test_cuvsivf)
 endif()

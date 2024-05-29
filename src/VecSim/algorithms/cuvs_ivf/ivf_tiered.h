@@ -1,30 +1,30 @@
 #pragma once
 
 #include <mutex>
-#include "VecSim/algorithms/raft_ivf/ivf_interface.h"
+#include "VecSim/algorithms/cuvs_ivf/ivf_interface.h"
 #include "VecSim/vec_sim_tiered_index.h"
 
-struct RAFTTransferJob : public AsyncJob {
+struct CUVSTransferJob : public AsyncJob {
     bool force_ = false;
-    RAFTTransferJob(std::shared_ptr<VecSimAllocator> allocator, JobCallback insertCb,
+    CUVSTransferJob(std::shared_ptr<VecSimAllocator> allocator, JobCallback insertCb,
                     VecSimIndex *index_, bool force = false)
-        : AsyncJob{allocator, RAFT_TRANSFER_JOB, insertCb, index_}, force_{force} {}
+        : AsyncJob{allocator, CUVS_TRANSFER_JOB, insertCb, index_}, force_{force} {}
 };
 
 template <typename DataType, typename DistType>
-struct TieredRaftIvfIndex : public VecSimTieredIndex<DataType, DistType> {
-    TieredRaftIvfIndex(RaftIvfInterface<DataType, DistType> *raftIvfIndex,
+struct TieredCuvsIvfIndex : public VecSimTieredIndex<DataType, DistType> {
+    TieredCuvsIvfIndex(CuvsIvfInterface<DataType, DistType> *cuvsIvfIndex,
                        BruteForceIndex<DataType, DistType> *bf_index,
                        const TieredIndexParams &tieredParams,
                        std::shared_ptr<VecSimAllocator> allocator)
-        : VecSimTieredIndex<DataType, DistType>(raftIvfIndex, bf_index, tieredParams, allocator) {
+        : VecSimTieredIndex<DataType, DistType>(cuvsIvfIndex, bf_index, tieredParams, allocator) {
         assert(
-            raftIvfIndex->nLists() < this->flatBufferLimit &&
+            cuvsIvfIndex->nLists() < this->flatBufferLimit &&
             "The flat buffer limit must be greater than the number of lists in the backend index");
         this->minVectorsInit =
-            std::max((size_t)1, tieredParams.specificParams.tieredRaftIvfParams.minVectorsInit);
+            std::max((size_t)1, tieredParams.specificParams.tieredCuvsIvfParams.minVectorsInit);
     }
-    ~TieredRaftIvfIndex() {
+    ~TieredCuvsIvfIndex() {
         // Delete all the pending jobs
     }
 
@@ -34,7 +34,7 @@ struct TieredRaftIvfIndex : public VecSimTieredIndex<DataType, DistType> {
         if (this->frontendIndex->indexSize() >= this->flatBufferLimit) {
             // If the backend index is empty, build it with all the vectors
             // Otherwise, just add the vector to the backend index
-            auto temp_job = RAFTTransferJob(this->allocator, executeTransferJobWrapper, this, true);
+            auto temp_job = CUVSTransferJob(this->allocator, executeTransferJobWrapper, this, true);
             executeTransferJob(&temp_job);
         }
 
@@ -54,7 +54,7 @@ struct TieredRaftIvfIndex : public VecSimTieredIndex<DataType, DistType> {
 
         // Submit a transfer job
         AsyncJob *new_insert_job =
-            new (this->allocator) RAFTTransferJob(this->allocator, executeTransferJobWrapper, this);
+            new (this->allocator) CUVSTransferJob(this->allocator, executeTransferJobWrapper, this);
         this->submitSingleJob(new_insert_job);
 
         return ret;
@@ -98,12 +98,12 @@ struct TieredRaftIvfIndex : public VecSimTieredIndex<DataType, DistType> {
         this->flatIndexGuard.lock_shared();
         this->mainIndexGuard.lock_shared();
         auto flat_labels = this->frontendIndex->getLabelsSet();
-        auto raft_ivf_labels = this->getBackendIndex()->getLabelsSet();
+        auto cuvs_ivf_labels = this->getBackendIndex()->getLabelsSet();
         this->flatIndexGuard.unlock_shared();
         this->mainIndexGuard.unlock_shared();
         std::vector<labelType> output;
-        std::set_union(flat_labels.begin(), flat_labels.end(), raft_ivf_labels.begin(),
-                       raft_ivf_labels.end(), std::back_inserter(output));
+        std::set_union(flat_labels.begin(), flat_labels.end(), cuvs_ivf_labels.begin(),
+                       cuvs_ivf_labels.end(), std::back_inserter(output));
         return output.size();
     }
 
@@ -113,15 +113,15 @@ struct TieredRaftIvfIndex : public VecSimTieredIndex<DataType, DistType> {
 
     double getDistanceFrom_Unsafe(labelType label, const void *blob) const override {
         auto flat_dist = this->frontendIndex->getDistanceFrom_Unsafe(label, blob);
-        auto raft_dist = this->backendIndex->getDistanceFrom_Unsafe(label, blob);
-        return std::fmin(flat_dist, raft_dist);
+        auto cuvs_dist = this->backendIndex->getDistanceFrom_Unsafe(label, blob);
+        return std::fmin(flat_dist, cuvs_dist);
     }
 
     static void executeTransferJobWrapper(AsyncJob *job) {
         if (job->isValid) {
-            auto *transfer_job = reinterpret_cast<RAFTTransferJob *>(job);
+            auto *transfer_job = reinterpret_cast<CUVSTransferJob *>(job);
             auto *job_index =
-                reinterpret_cast<TieredRaftIvfIndex<DataType, DistType> *>(transfer_job->index);
+                reinterpret_cast<TieredCuvsIvfIndex<DataType, DistType> *>(transfer_job->index);
             job_index->executeTransferJob(transfer_job);
         }
         delete job;
@@ -165,10 +165,10 @@ private:
     // This ptr is designating the latest transfer job. It is protected by flat buffer lock
 
     inline auto *getBackendIndex() const {
-        return dynamic_cast<RaftIvfInterface<DataType, DistType> *>(this->backendIndex);
+        return dynamic_cast<CuvsIvfInterface<DataType, DistType> *>(this->backendIndex);
     }
 
-    void executeTransferJob(RAFTTransferJob *job) {
+    void executeTransferJob(CUVSTransferJob *job) {
         size_t nVectors = this->frontendIndex->indexSize();
         // No vectors to transfer
         if (nVectors == 0) {
@@ -235,12 +235,12 @@ private:
     INDEX_TEST_FRIEND_CLASS(BM_VecSimBasics)
     INDEX_TEST_FRIEND_CLASS(BM_VecSimCommon)
     INDEX_TEST_FRIEND_CLASS(BM_VecSimIndex);
-    INDEX_TEST_FRIEND_CLASS(RaftIvfTieredTest)
-    INDEX_TEST_FRIEND_CLASS(RaftIvfTieredTest_transferJob_Test)
-    INDEX_TEST_FRIEND_CLASS(RaftIvfTieredTest_transferJobAsync_Test)
-    INDEX_TEST_FRIEND_CLASS(RaftIvfTieredTest_transferJob_inplace_Test)
-    INDEX_TEST_FRIEND_CLASS(RaftIvfTieredTest_deleteVector_backend_Test)
-    INDEX_TEST_FRIEND_CLASS(RaftIvfTieredTest_searchMetricCosine_Test)
-    INDEX_TEST_FRIEND_CLASS(RaftIvfTieredTest_searchMetricIP_Test)
+    INDEX_TEST_FRIEND_CLASS(CuvsIvfTieredTest)
+    INDEX_TEST_FRIEND_CLASS(CuvsIvfTieredTest_transferJob_Test)
+    INDEX_TEST_FRIEND_CLASS(CuvsIvfTieredTest_transferJobAsync_Test)
+    INDEX_TEST_FRIEND_CLASS(CuvsIvfTieredTest_transferJob_inplace_Test)
+    INDEX_TEST_FRIEND_CLASS(CuvsIvfTieredTest_deleteVector_backend_Test)
+    INDEX_TEST_FRIEND_CLASS(CuvsIvfTieredTest_searchMetricCosine_Test)
+    INDEX_TEST_FRIEND_CLASS(CuvsIvfTieredTest_searchMetricIP_Test)
 #endif
 };

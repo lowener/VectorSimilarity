@@ -70,9 +70,9 @@ protected:
         return params;
     }
 
-    static VecSimParams createDefaultRaftIvfPQParams(size_t dim, uint32_t nLists = 1024,
+    static VecSimParams createDefaultCuvsIvfPQParams(size_t dim, uint32_t nLists = 1024,
                                                      uint32_t nProbes = 20) {
-        RaftIvfParams ivfparams = {.dim = dim,
+        CuvsIvfParams ivfparams = {.dim = dim,
                                    .metric = VecSimMetric_Cosine,
                                    .nLists = nLists,
                                    .kmeans_nIters = 20,
@@ -81,19 +81,19 @@ protected:
                                    .usePQ = true,
                                    .pqBits = 8,
                                    .pqDim = 0,
-                                   .codebookKind = RaftIVFPQCodebookKind_PerSubspace,
+                                   .codebookKind = CuvsIVFPQCodebookKind_PerSubspace,
                                    .lutType = CUDAType_R_32F,
                                    .internalDistanceType = CUDAType_R_32F,
                                    .preferredShmemCarveout = 1.0};
-        VecSimParams params{.algo = VecSimAlgo_RAFT_IVFPQ,
-                            .algoParams = {.raftIvfParams = ivfparams}};
+        VecSimParams params{.algo = VecSimAlgo_CUVS_IVFPQ,
+                            .algoParams = {.cuvsIvfParams = ivfparams}};
         return params;
     }
 
-    static VecSimParams createDefaultRaftIvfFlatParams(size_t dim, uint32_t nLists = 1024,
+    static VecSimParams createDefaultCuvsIvfFlatParams(size_t dim, uint32_t nLists = 1024,
                                                        uint32_t nProbes = 20,
                                                        bool adaptiveCenters = true) {
-        RaftIvfParams ivfparams = {.dim = dim,
+        CuvsIvfParams ivfparams = {.dim = dim,
                                    .metric = VecSimMetric_Cosine,
                                    .nLists = nLists,
                                    .kmeans_nIters = 20,
@@ -101,8 +101,8 @@ protected:
                                    .nProbes = nProbes,
                                    .usePQ = false,
                                    .adaptiveCenters = adaptiveCenters};
-        VecSimParams params{.algo = VecSimAlgo_RAFT_IVFFLAT,
-                            .algoParams = {.raftIvfParams = ivfparams}};
+        VecSimParams params{.algo = VecSimAlgo_CUVS_IVFFLAT,
+                            .algoParams = {.cuvsIvfParams = ivfparams}};
         return params;
     }
 
